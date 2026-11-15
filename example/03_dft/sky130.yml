@@ -1,0 +1,6 @@
+# Match SKY130HD register pins in the synthesized netlist.
+dffMatches:
+  - name: sky130_fd_sc_hd__dfrtp_1
+    clk: CLK
+    d: D
+    q: Q
