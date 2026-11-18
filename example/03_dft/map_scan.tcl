@@ -25,6 +25,9 @@ abc -liberty $::env(LIBERTY)
 # Remove unused wires and cells
 clean
 
+# Give each output port its own net (scan_out and count[3] are the same signal)
+insbuf -buf sky130_fd_sc_hd__buf_1 A X
+
 # Check for problems
 check
 

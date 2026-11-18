@@ -4,9 +4,44 @@ Chào mừng bạn! Tài liệu này cung cấp cái nhìn tổng quan, dễ hi�
 
 Dù bạn là sinh viên, lập trình viên phần mềm muốn chuyển sang thiết kế phần cứng (IC Design), hay kỹ sư vi mạch mới bắt đầu, tài liệu này sẽ giải thích từng bước trong quy trình, so sánh sự khác biệt giữa ASIC & FPGA, và làm rõ các thuật ngữ cốt lõi một cách trực quan nhất.
 
+## Chạy thử với bộ đếm 4 bit
+
+Thư mục [example](example/README.md) đưa một bộ đếm 4 bit đi từ RTL đến GDSII. Mỗi giai đoạn nằm trong một thư mục đánh số và có sẵn file để chạy.
+
+| Thư mục | Việc làm ở giai đoạn này |
+| --- | --- |
+| [`01_rtl`](example/01_rtl/README.md) | Viết đặc tả, code và mô phỏng bộ đếm thường |
+| [`02_synthesis`](example/02_synthesis/README.md) | Dùng Yosys map RTL sang cell SKY130HD |
+| [`03_dft`](example/03_dft/README.md) | Chèn scan bằng Fault, kiểm tra và chạy ATPG |
+| [`04_physical`](example/04_physical/README.md) | Floorplan, placement, CTS và routing |
+| [`05_gds`](example/05_gds/README.md) | Ghép DEF sau route với layout của cell thành file GDS |
+| [`06_signoff`](example/06_signoff/README.md) | DRC KLayout và Magic, LVS KLayout và netgen, antenna, mô phỏng sau route, LEC, STA nhiều corner, đóng gói, [xem 3D](example/06_signoff/view3d/README.md) |
+
+Chạy từng giai đoạn từ thư mục gốc của repo:
+
+```sh
+make -C example/01_rtl
+make -C example/02_synthesis
+make -C example/03_dft
+make -C example/04_physical
+make -C example/05_gds
+make -C example/06_signoff
+```
+
+Mỗi thư mục có một link `build/` trỏ tới kết quả và log của nó. File GDSII là `example/05_gds/build/counter4.gds`, còn database của floorplan, placement, CTS và routing nằm trong `example/04_physical/build/`. Lệnh `make doctor` kiểm tra môi trường đã cài, `make all` chạy cả chuỗi và `make test` chạy test cho script điều khiển. Xem thêm [kết quả tham chiếu](example/REF_RESULT.md) để đối chiếu với máy của bạn.
+
+RTL của bộ đếm chỉ có chức năng, chưa có scan. Fault chèn scan sau khi tổng hợp rồi cắt các flip-flop scan để chạy ATPG. OpenROAD nhận netlist scan vừa sinh ra, giữ nguyên flip-flop. Trước khi xuất layout, script so netlist đưa vào bước vật lý với đầu ra của DFT để chắc chắn hai bản giống nhau.
+
+### Đọc kết quả kiểm tra cho đúng
+
+Mô phỏng chỉ kiểm hành vi mà testbench chạm tới. Equivalence checking so hai bản mô tả mạch dưới các giả định đã nêu. STA kiểm các đường đã có ràng buộc và không cần vector thử. Mô phỏng gate-level chỉ có trễ khi bạn nạp dữ liệu trễ phù hợp, ví dụ SDF.
+
+DRC chỉ kiểm các luật có trong bộ luật đã bật. LVS so mạch trích từ layout với bản tham chiếu. Kết quả đạt chỉ đúng với bộ luật, mô hình và bản tham chiếu đã dùng. Giới hạn của ví dụ này ghi trong [hướng dẫn signoff](example/06_signoff/README.md).
+
 ---
 
 ## Mục Lục
+0. [Chạy thử với bộ đếm 4 bit](#chạy-thử-với-bộ-đếm-4-bit)
 1. [So Sánh Tổng Quan: ASIC vs. FPGA](#1-so-sánh-tổng-quan-asic-vs-fpga)
 2. [Quy Trình Thiết Kế ASIC Flow Chi Tiết](#2-quy-trình-thiết-kế-asic-flow-chi-tiết)
 3. [Quy Trình Thiết Kế FPGA Flow Chi Tiết](#3-quy-trình-thiết-kế-fpga-flow-chi-tiết)

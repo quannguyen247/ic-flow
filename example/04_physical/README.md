@@ -42,11 +42,13 @@ Outputs in `build/`:
 | `placement.odb` | Design after placement |
 | `cts.odb` | Design after clock tree synthesis |
 | `routing.odb` | Design after routing |
+| `final.odb`, `final.def` | Routed design after ORFS `finish` (written by `make gds`, read by step 05) |
 | `reports/`, `logs/` | ORFS reports and logs |
 
-The driver checks that the ORFS input is byte-identical to
-`../03_dft/build/counter4_scan.v`. Both SDC files treat `rst_n` as a false
-path; a real chip would need more timing modes and corners.
+When `make gds` runs the ORFS `finish` step, the driver checks that the ORFS
+input is byte-identical to `../03_dft/build/counter4_scan.v`. In functional mode `rst_n` is timed like a
+synchronous input (reset recovery and removal checks); in scan-shift mode it
+is held at 1. Step 06 times both modes in every corner.
 
 ## Exercise
 
@@ -54,4 +56,4 @@ Open the `.odb` files in OpenROAD and compare the clock net before and after
 CTS. Change `CORE_UTILIZATION` from 20 to 30 in `config.mk`, rerun, and
 compare the core size and routing. Set it back to 20 afterwards.
 
-Next: [layout export and checks](../05_tapeout/README.md).
+Next: [GDS](../05_gds/README.md).

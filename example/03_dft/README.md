@@ -22,6 +22,7 @@ stuck-at test patterns (ATPG). The RTL in step 01 stays unchanged.
 | Simulation | Icarus | Run `tb_counter4` and `tb_scan` on the scan netlist |
 | `fault cut` | Fault | Cut the scan FFs into pseudo inputs/outputs |
 | `fault atpg` | Fault | Generate stuck-at patterns and coverage |
+| Fault simulation | Icarus | Run `tb_scan` once per fault ATPG cannot see (scan path, clock mux, FF pins) |
 
 ## Run
 
@@ -43,7 +44,19 @@ Outputs in `build/`:
 | `sim_post_dft.log` | Functional test on the scan netlist |
 | `sim_post_dft_scan.log` | Scan test on the scan netlist |
 | `cut.v`, `patterns.json`, `coverage.yml` | ATPG netlist, patterns and coverage |
+| `scan_test_faults/` | One netlist per injected fault |
 | `fault_*.log`, `scan_mapping.log` | Tool logs |
+| `scan_fault_<site>_sa<0/1>.log` | One fault simulation of `tb_scan` per injected fault |
+
+ATPG alone covers 83.6% of Fault's stuck-at list, because it holds
+`scan_enable` and `test_mode` at 0. The other faults sit on the scan path, the
+clock mux and the FF pins; `tb_scan` detects each of them in fault simulation.
+Total: 146/146 stuck-at faults (100%), recorded as `fault_atpg` in
+`../build/latest/summary.json`.
+
+Fault 0.9.4 sometimes crashes with a segmentation fault during `fault atpg`.
+The seed is fixed, so the driver reruns it once when a signal kills it;
+any other failure stops the stage.
 
 ## Scan ports
 

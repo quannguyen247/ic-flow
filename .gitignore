@@ -1,0 +1,34 @@
+# --- Local config (build outputs are ignored in example/.gitignore) ---
+example/local.mk
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+*.egg-info/
+
+# --- EDA tool outputs (Icarus waveforms, tool logs, temp files) ---
+*.vcd
+*.fst
+*.log
+*.dmp
+*.tmp
+.cache/
+
+# --- graphify: the graph is rebuilt locally with `graphify update .` ---
+graphify-out/
+
+# --- Editor / OS ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
