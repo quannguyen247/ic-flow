@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GDS 3D Viewer</title>
+<style>
+  :root {
+    --bg: #0b0f14; --panel: rgba(17, 24, 33, 0.92); --line: #253141;
+    --text: #dbe4ee; --muted: #8a99ab; --accent: #f59e0b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  #view { position: fixed; inset: 0; }
+  header { position: fixed; top: 12px; left: 16px; right: 16px; pointer-events: none; }
+  header h1 { margin: 0; font-size: 15px; font-weight: 600; }
+  header p { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+  #panel { position: fixed; top: 64px; left: 16px; width: 250px; max-height: calc(100% - 80px);
+    overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  #panel h2 { margin: 10px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+  #panel h2:first-child { margin-top: 0; }
+  .layer { display: grid; grid-template-columns: 16px 12px 1fr auto; gap: 6px; align-items: center; padding: 2px 0; cursor: pointer; }
+  .sw { width: 12px; height: 12px; border-radius: 2px; }
+  .count { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 11px; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+  button { background: #1a2431; color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+    padding: 4px 8px; font: inherit; font-size: 12px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  label.slider { display: block; margin: 6px 0; font-size: 12px; color: var(--muted); }
+  label.slider input { width: 100%; }
+  #tip { position: fixed; pointer-events: none; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 8px; font-size: 12px; display: none; white-space: nowrap; }
+  #toggle { display: none; position: fixed; top: 12px; right: 16px; }
+  .note { color: var(--muted); font-size: 11px; margin-top: 8px; }
+  @media (max-width: 640px) {
+    #toggle { display: block; }
+    #panel { left: 16px; right: 16px; width: auto; max-height: 55%; top: auto; bottom: 16px; }
+    #panel.hidden { display: none; }
+  }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="view"></div>
+<header><h1 id="title">GDS 3D</h1><p id="sub"></p></header>
+<button id="toggle">Layers</button>
+<div id="panel">
+  <h2>View</h2>
+  <div class="row">
+    <button data-view="iso">Iso</button><button data-view="top">Top</button>
+    <button data-view="side">Side</button><button id="shot">Save PNG</button>
+  </div>
+  <label class="slider">Z scale <span id="zsv"></span><input id="zs" type="range" min="1" max="12" step="0.5" value="3"></label>
+  <label class="slider">Explode layers <span id="exv"></span><input id="ex" type="range" min="0" max="6" step="0.25" value="0"></label>
+  <label class="slider">Opacity <span id="opv"></span><input id="op" type="range" min="0.15" max="1" step="0.05" value="0.9"></label>
+  <div class="row"><button id="all">All</button><button id="metal">Metal only</button><button id="feol">FEOL only</button><button id="cellsBtn">Cell boxes</button></div>
+  <h2>Layers</h2>
+  <div id="layers"></div>
+  <p class="note">Drag to rotate, right-drag to pan, scroll to zoom. Z heights are an approximate SKY130 stack, exaggerated by the Z scale.</p>
+</div>
+<div id="tip"></div>
+
+<script id="layout-data" type="application/json">/*__LAYOUT_JSON__*/null</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+// The template still holds the placeholder comment until gds_to_3d.py fills it in
+const RAW = document.getElementById("layout-data").textContent.trim();
+const DATA = RAW.startsWith("/*") ? null : JSON.parse(RAW);
+if (!DATA) {
+  document.getElementById("panel").remove();
+  document.getElementById("title").textContent = "This is the empty template";
+  document.getElementById("sub").innerHTML =
+    "Open the generated file instead: <b>06_signoff/view3d/build/counter4_3d.html</b> " +
+    "(run <code>make view3d</code> in <code>example/</code> to create it).";
+  document.querySelector("header").style.pointerEvents = "auto";
+  throw new Error("no layout data: open the generated *_3d.html, not viewer_template.html");
+}
+const [bx0, by0, bx1, by1] = DATA.bbox;
+const cx = (bx0 + bx1) / 2, cy = (by0 + by1) / 2, span = Math.max(bx1 - bx0, by1 - by0);
+const METALS = new Set(["met1", "via", "met2", "via2", "met3", "via3", "met4", "via4", "met5"]);
+
+document.getElementById("title").textContent = `${DATA.design} · GDS in 3D`;
+const totalQuads = DATA.layers.reduce((n, l) => n + l.quads.length / 8, 0);
+document.getElementById("sub").textContent =
+  `${DATA.source} · ${(bx1 - bx0).toFixed(2)} × ${(by1 - by0).toFixed(2)} µm · ` +
+  `${DATA.cells.length} instances · ${totalQuads.toLocaleString()} trapezoids`;
+
+const host = document.getElementById("view");
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+host.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color("#0b0f14");
+const camera = new THREE.PerspectiveCamera(40, 1, span / 1000, span * 20);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x1a1a22, 1.1));
+const sun = new THREE.DirectionalLight(0xffffff, 1.4);
+sun.position.set(span, span * 1.5, span * 0.8);
+scene.add(sun);
+
+// Die outline plate.
+const die = new THREE.Mesh(
+  new THREE.BoxGeometry(bx1 - bx0, span * 0.002, by1 - by0),
+  new THREE.MeshStandardMaterial({ color: 0x1b2430, roughness: 1 }));
+scene.add(die);
+
+// One prism per trapezoid; layout x -> X, layout y -> -Z, height -> Y.
+function prismGeometry(quads) {
+  const n = quads.length / 8;
+  const pos = new Float32Array(n * 8 * 3);
+  const idx = new Uint32Array(n * 36);
+  const faces = [0,2,1, 0,3,2,  4,5,6, 4,6,7,  0,1,5, 0,5,4,  1,2,6, 1,6,5,  2,3,7, 2,7,6,  3,0,4, 3,4,7];
+  for (let q = 0; q < n; q++) {
+    for (let k = 0; k < 4; k++) {
+      const x = quads[q * 8 + k * 2] - cx, z = -(quads[q * 8 + k * 2 + 1] - cy);
+      pos.set([x, 0, z], (q * 8 + k) * 3);
+      pos.set([x, 1, z], (q * 8 + k + 4) * 3);
+    }
+    for (let f = 0; f < 36; f++) idx[q * 36 + f] = q * 8 + faces[f];
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  return g;
+}
+
+const meshes = DATA.layers.map((layer, i) => {
+  const mat = new THREE.MeshStandardMaterial({
+    color: layer.color, flatShading: true, roughness: 0.55,
+    metalness: METALS.has(layer.name) ? 0.35 : 0.05,
+    transparent: true, opacity: 0.9, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(prismGeometry(layer.quads), mat);
+  mesh.userData = { layer, order: i };
+  mesh.visible = layer.visible;
+  scene.add(mesh);
+  return mesh;
+});
+
+// Standard-cell outlines just above the die.
+const cellLines = (() => {
+  const pts = [];
+  for (const [, x0, y0, x1, y1] of DATA.cells) {
+    const a = [x0 - cx, -(y0 - cy)], b = [x1 - cx, -(y0 - cy)], c = [x1 - cx, -(y1 - cy)], d = [x0 - cx, -(y1 - cy)];
+    for (const [p, q] of [[a, b], [b, c], [c, d], [d, a]]) pts.push(p[0], 0, p[1], q[0], 0, q[1]);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+  const lines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x5eead4, transparent: true, opacity: 0.55 }));
+  lines.visible = false;
+  scene.add(lines);
+  return lines;
+})();
+
+const ui = { zs: document.getElementById("zs"), ex: document.getElementById("ex"), op: document.getElementById("op") };
+function applyLayout() {
+  const zs = +ui.zs.value, ex = +ui.ex.value, op = +ui.op.value;
+  document.getElementById("zsv").textContent = `×${zs}`;
+  document.getElementById("exv").textContent = ex.toFixed(2);
+  document.getElementById("opv").textContent = op.toFixed(2);
+  for (const m of meshes) {
+    const { layer, order } = m.userData;
+    m.position.y = layer.z0 * zs + order * ex;
+    m.scale.y = Math.max((layer.z1 - layer.z0) * zs, 1e-3);
+    m.material.opacity = op;
+    m.material.depthWrite = op > 0.97;
+  }
+  const bottom = Math.min(...DATA.layers.map(l => l.z0)) * zs;
+  die.position.y = bottom - span * 0.002;
+  cellLines.position.y = bottom + 0.01;
+}
+for (const el of Object.values(ui)) el.addEventListener("input", applyLayout);
+applyLayout();
+
+// Layer list.
+const list = document.getElementById("layers");
+const boxes = meshes.map(m => {
+  const { layer } = m.userData;
+  const row = document.createElement("label");
+  row.className = "layer";
+  row.title = `GDS ${layer.gds}, z ${layer.z0}–${layer.z1} µm`;
+  row.innerHTML = `<input type="checkbox"><span class="sw" style="background:${layer.color}"></span>` +
+    `<span>${layer.name} <span class="count">${layer.gds}</span></span><span class="count">${(layer.quads.length / 8).toLocaleString()}</span>`;
+  const cb = row.querySelector("input");
+  cb.checked = m.visible;
+  cb.addEventListener("change", () => { m.visible = cb.checked; });
+  list.appendChild(row);
+  return cb;
+});
+function showOnly(pred) { meshes.forEach((m, i) => { m.visible = boxes[i].checked = pred(m.userData.layer.name); }); }
+document.getElementById("all").onclick = () => showOnly(n => n !== "nwell");
+document.getElementById("metal").onclick = () => showOnly(n => METALS.has(n));
+document.getElementById("feol").onclick = () => showOnly(n => !METALS.has(n));
+document.getElementById("cellsBtn").onclick = () => { cellLines.visible = !cellLines.visible; };
+document.getElementById("toggle").onclick = () => document.getElementById("panel").classList.toggle("hidden");
+
+// Camera presets.
+function setView(kind) {
+  const d = span * 1.35;
+  const at = { iso: [d * 0.75, d * 0.8, d * 0.9], top: [0, d * 1.6, 0.001], side: [0, d * 0.25, d * 1.5] }[kind];
+  camera.position.set(...at);
+  controls.target.set(0, 0, 0);
+  controls.update();
+}
+document.querySelectorAll("[data-view]").forEach(b => b.onclick = () => setView(b.dataset.view));
+setView("iso");
+
+document.getElementById("shot").onclick = () => {
+  renderer.render(scene, camera);
+  const a = document.createElement("a");
+  a.href = renderer.domElement.toDataURL("image/png");
+  a.download = `${DATA.design}_3d.png`;
+  a.click();
+};
+
+// Hover: layer and the standard cell under the pointer.
+const ray = new THREE.Raycaster(), ptr = new THREE.Vector2(), tip = document.getElementById("tip");
+renderer.domElement.addEventListener("pointermove", e => {
+  const r = renderer.domElement.getBoundingClientRect();
+  ptr.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(ptr, camera);
+  const hit = ray.intersectObjects(meshes.filter(m => m.visible), false)[0];
+  if (!hit) { tip.style.display = "none"; return; }
+  const x = hit.point.x + cx, y = -hit.point.z + cy;
+  const cell = DATA.cells.find(([, x0, y0, x1, y1]) => x >= x0 && x <= x1 && y >= y0 && y <= y1);
+  tip.textContent = `${hit.object.userData.layer.name} · (${x.toFixed(2)}, ${y.toFixed(2)}) µm` + (cell ? ` · ${cell[0]}` : "");
+  tip.style.left = `${e.clientX + 14}px`; tip.style.top = `${e.clientY + 14}px`; tip.style.display = "block";
+});
+renderer.domElement.addEventListener("pointerleave", () => { tip.style.display = "none"; });
+
+function resize() {
+  const w = host.clientWidth, h = host.clientHeight;
+  renderer.setSize(w, h, false);
+  renderer.domElement.style.width = "100%"; renderer.domElement.style.height = "100%";
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+addEventListener("resize", resize);
+resize();
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+</script>
+</body>
+</html>
